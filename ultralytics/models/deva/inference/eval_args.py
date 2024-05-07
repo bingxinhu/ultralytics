@@ -3,7 +3,13 @@ from argparse import ArgumentParser
 import torch
 from deva.model.network import DEVA
 
-
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+    
 def add_common_eval_args(parser: ArgumentParser):
     parser.add_argument('--model', default='./saves/DEVA-propagation.pth')
 
@@ -62,7 +68,10 @@ def get_model_and_config(parser: ArgumentParser):
     config['enable_long_term'] = not config['disable_long_term']
 
     # Load our checkpoint
-    network = DEVA(config).cuda().eval()
+    if device == 'cuda':
+        network = DEVA(config).cuda().eval()
+    else:
+        network = DEVA(config).to(device).eval()
     if args.model is not None:
         model_weights = torch.load(args.model)
         network.load_weights(model_weights)

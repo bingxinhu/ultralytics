@@ -15,6 +15,13 @@ from deva.model.losses import LossComputer
 from deva.utils.log_integrator import Integrator
 from deva.utils.image_saver import pool_pairs
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+
 
 class Trainer:
     def __init__(self, config, logger=None, save_path=None, local_rank=0, world_size=1):
@@ -24,7 +31,7 @@ class Trainer:
         self.deep_update_prob = config['deep_update_prob']
         self.local_rank = local_rank
 
-        self.DEVA = nn.parallel.DistributedDataParallel(DEVA(config).cuda(),
+        self.DEVA = nn.parallel.DistributedDataParallel(DEVA(config).to(device),
                                                         device_ids=[local_rank],
                                                         output_device=local_rank,
                                                         broadcast_buffers=False)
@@ -58,7 +65,12 @@ class Trainer:
             raise NotImplementedError
 
         if config['amp']:
-            self.scaler = torch.cuda.amp.GradScaler()
+            if device == 'cuda':
+                self.scaler = torch.cuda.amp.GradScaler()
+            elif device == 'mps':
+                self.scaler = torch.GradScaler('mps')
+            else:
+                self.scaler = torch.cpu.amp.GradScaler()
 
         # Logging info
         self.log_text_interval = config['log_text_interval']
@@ -84,9 +96,9 @@ class Trainer:
         num_objects = first_frame_gt.shape[2]
         selector = data['selector'].unsqueeze(2).unsqueeze(2)
 
-        with torch.cuda.amp.autocast(enabled=self.config['amp']):
+        #with torch.cuda.amp.autocast(enabled=self.config['amp']):
             # filler_one = torch.zeros(1, dtype=torch.int64)
-
+        with torch.autocast(device_type=device, enabled=self.config['amp']):
             ms_features, feat = self.DEVA('encode_image', frames[:, 0])
             k, s, _ = self.DEVA('transform_key', feat, need_ek=False)
 
@@ -233,15 +245,15 @@ class Trainer:
 
     def load_checkpoint(self, path):
         # This method loads everything and should be used to resume training
-        map_location = 'cuda:%d' % self.local_rank
-        checkpoint = torch.load(path, map_location={'cuda:0': map_location})
+        map_location = 'device:%d' % self.local_rank
+        checkpoint = torch.load(path, map_location={'mps:0': map_location})
 
         it = checkpoint['it']
         network = checkpoint['network']
         optimizer = checkpoint['optimizer']
         scheduler = checkpoint['scheduler']
 
-        map_location = 'cuda:%d' % self.local_rank
+        map_location = 'device:%d' % self.local_rank
         self.DEVA.module.load_state_dict(network)
         self.optimizer.load_state_dict(optimizer)
         self.scheduler.load_state_dict(scheduler)
@@ -256,8 +268,8 @@ class Trainer:
 
     def load_network(self, path):
         # This method loads only the network weight and should be used to load a pretrained model
-        map_location = 'cuda:%d' % self.local_rank
-        src_dict = torch.load(path, map_location={'cuda:0': map_location})
+        map_location = 'device:%d' % self.local_rank
+        src_dict = torch.load(path, map_location={'mps:0': map_location})
 
         self.load_network_in_memory(src_dict)
         print(f'Network weight loaded from {path}')

@@ -6,6 +6,12 @@ from deva.dataset.utils import im_normalization
 from deva.inference.inference_core import DEVAInferenceCore
 from deva.inference.result_utils import ResultSaver
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
 
 def get_input_frame_for_deva(image_np: np.ndarray, min_side: int) -> torch.Tensor:
     image = torch.from_numpy(image_np).permute(2, 0, 1).float() / 255
@@ -16,7 +22,8 @@ def get_input_frame_for_deva(image_np: np.ndarray, min_side: int) -> torch.Tenso
         new_h, new_w = int(h * scale), int(w * scale)
         image = image.unsqueeze(0)
         image = F.interpolate(image, (new_h, new_w), mode='bilinear', align_corners=False)[0]
-    return image.cuda()
+
+    return image.to(device)
 
 
 @torch.inference_mode()

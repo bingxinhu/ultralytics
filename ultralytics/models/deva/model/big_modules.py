@@ -19,6 +19,12 @@ from deva.model.group_modules import *
 from deva.model import resnet
 from deva.model.modules import *
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
 
 class PixelEncoder(nn.Module):
     def __init__(self, pix_feat_dim: int):
@@ -186,9 +192,13 @@ class MaskDecoder(nn.Module):
 
             p8 = self.up_16_8(decoder_features[0], p16)
             p4 = self.up_8_4(decoder_features[1], p8)
-            with torch.cuda.amp.autocast(enabled=False):
-                logits = self.pred(F.relu(p4.flatten(start_dim=0, end_dim=1).float()))
 
+            if device == 'cuda':
+                with torch.cuda.amp.autocast(enabled=False):
+                    logits = self.pred(F.relu(p4.flatten(start_dim=0, end_dim=1).float()))
+            else:
+                with torch.autocast(device_type='mps', enabled=False):
+                    logits = self.pred(F.relu(p4.flatten(start_dim=0, end_dim=1).float()))
             if update_sensory:
                 p4 = torch.cat(
                     [p4, logits.view(batch_size, actual_chunk_size, 1, *logits.shape[-2:])], 2)

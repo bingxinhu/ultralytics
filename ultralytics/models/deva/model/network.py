@@ -14,6 +14,12 @@ from deva.model.modules import *
 from deva.model.big_modules import *
 from deva.model.memory_utils import *
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
 
 class DEVA(nn.Module):
     def __init__(self, config: Dict):
@@ -31,13 +37,24 @@ class DEVA(nn.Module):
         self.mask_decoder = MaskDecoder(self.value_dim)
 
     def aggregate(self, prob: torch.Tensor, dim: int) -> torch.Tensor:
-        with torch.cuda.amp.autocast(enabled=False):
-            prob = prob.float()
-            new_prob = torch.cat([torch.prod(1 - prob, dim=dim, keepdim=True), prob],
-                                 dim).clamp(1e-7, 1 - 1e-7)
-            logits = torch.log((new_prob / (1 - new_prob)))
+        if device == 'cuda':
+            with torch.cuda.amp.autocast(enabled=False):
+                prob = prob.float()
+                new_prob = torch.cat([torch.prod(1 - prob, dim=dim, keepdim=True), prob],
+                                    dim).clamp(1e-7, 1 - 1e-7)
+                logits = torch.log((new_prob / (1 - new_prob)))
 
-            return logits
+                return logits
+        elif device == 'mps':
+            with torch.autocast(device_type='mps', enabled=False):
+                prob = prob.float()
+                new_prob = torch.cat([torch.prod(1 - prob, dim=dim, keepdim=True), prob],
+                                    dim).clamp(1e-7, 1 - 1e-7)
+                logits = torch.log((new_prob / (1 - new_prob)))
+
+                return logits
+        else:
+            print("Unknow platform......")
 
     def encode_image(self, image: torch.Tensor) -> (List[torch.Tensor], torch.Tensor):
         multi_scale_features, key_feat = self.pixel_encoder(image)

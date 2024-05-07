@@ -7,6 +7,12 @@ from typing import Dict, Callable, Tuple
 import torch
 from deva.utils.logger import TensorboardLogger
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+elif torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
 
 class Integrator:
     def __init__(self, logger: TensorboardLogger, distributed: bool = True):
@@ -69,7 +75,7 @@ class Integrator:
 
             if self.distributed:
                 # Inplace operation
-                avg = torch.tensor(avg).cuda()
+                avg = torch.tensor(avg).to(device)
                 torch.distributed.reduce(avg, dst=0)
 
                 if self.local_rank == 0:
